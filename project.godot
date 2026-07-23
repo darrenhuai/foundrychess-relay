@@ -1,0 +1,12 @@
+; Minimal standalone project so `relay_server.gd` can be run headless with
+; `godot4 --headless --path server -s relay_server.gd`. This is a separate
+; mini-project on purpose -- the relay has nothing to do with the game
+; project and shouldn't ship with it or need the renderer/editor at all.
+
+config_version=5
+
+[application]
+
+config/name="Foundry Chess Relay Server"
+run/main_scene=""
+config/features=PackedStringArray("4.7", "GL Compatibility")
