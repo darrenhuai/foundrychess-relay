@@ -99,7 +99,7 @@ func _handle_packet(ws: WebSocketPeer, bytes: PackedByteArray) -> void:
 		"join":
 			_handle_join(ws, str(msg.get("code", "")))
 		"rejoin":
-			_handle_rejoin(ws, str(msg.get("code", "")), str(msg.get("role", "")))
+			_handle_rejoin(ws, str(msg.get("code", "")), str(msg.get("role", "")), str(msg.get("token", "")))
 		"relay":
 			_handle_relay(ws, msg.get("payload"))
 
@@ -107,10 +107,11 @@ func _handle_host(ws: WebSocketPeer) -> void:
 	if _room_of.has(ws):
 		return  # already in a room, ignore a duplicate host request
 	var code := _make_unique_code()
-	_rooms[code] = {"host": ws, "guest": null, "host_disconnected_at": -1, "guest_disconnected_at": -1}
+	var token := _make_token()
+	_rooms[code] = {"host": ws, "guest": null, "host_disconnected_at": -1, "guest_disconnected_at": -1, "host_token": token, "guest_token": ""}
 	_room_of[ws] = code
 	_role_of[ws] = "host"
-	_send(ws, {"type": "hosted", "code": code})
+	_send(ws, {"type": "hosted", "code": code, "token": token})
 
 func _handle_join(ws: WebSocketPeer, code: String) -> void:
 	if _room_of.has(ws):
@@ -120,13 +121,24 @@ func _handle_join(ws: WebSocketPeer, code: String) -> void:
 		_send(ws, {"type": "join_failed", "reason": "not_found"})
 		return
 	var room: Dictionary = _rooms[code]
+	# The room can outlive its host during the host's disconnect grace window
+	# (see _on_disconnect): the host slot is null but the room isn't erased yet
+	# because no guest had joined to wait for. Pairing a fresh guest to it would
+	# _send(null, ...) below and crash -- and leave the guest "paired" to a host
+	# that isn't there. Treat a host-less room as unavailable; the host may still
+	# rejoin, and the guest can retry.
+	if room.host == null:
+		_send(ws, {"type": "join_failed", "reason": "not_found"})
+		return
 	if room.guest != null:
 		_send(ws, {"type": "join_failed", "reason": "already_full"})
 		return
 	room.guest = ws
 	_room_of[ws] = code
 	_role_of[ws] = "guest"
-	_send(ws, {"type": "paired"})
+	var token := _make_token()
+	room["guest_token"] = token
+	_send(ws, {"type": "paired", "token": token})
 	_send(room.host, {"type": "paired"})
 
 ## Reclaims a room slot after a dropped connection reconnects -- the room
@@ -137,7 +149,16 @@ func _handle_join(ws: WebSocketPeer, code: String) -> void:
 ## NetActions.gd uses that on the host's side to push a fresh state_sync,
 ## covering the case where the returning peer's own GameState was wiped
 ## (app fully closed and reopened) rather than just its socket dropping.
-func _handle_rejoin(ws: WebSocketPeer, code: String, role: String) -> void:
+func _handle_rejoin(ws: WebSocketPeer, code: String, role: String, token: String) -> void:
+	# A genuinely-reconnecting peer arrives on a NEW socket (its old one was
+	# dropped and cleared from _room_of by _on_disconnect), so it is never
+	# already mapped. A socket that IS still mapped asking to rejoin is abuse --
+	# e.g. a connected guest claiming role "host" for its own room while the
+	# host is briefly disconnected, which would point room.host and room.guest
+	# at the same peer (self-relay) and lock the real host out. Reject it, the
+	# same "already in a room" guard _handle_host/_handle_join already use.
+	if _room_of.has(ws):
+		return
 	code = code.to_upper()
 	if role != "host" and role != "guest":
 		_send(ws, {"type": "rejoin_failed", "reason": "bad_role"})
@@ -148,6 +169,14 @@ func _handle_rejoin(ws: WebSocketPeer, code: String, role: String) -> void:
 	var room: Dictionary = _rooms[code]
 	if room.get(role) != null or room.get(role + "_disconnected_at", -1) == -1:
 		_send(ws, {"type": "rejoin_failed", "reason": "nothing_to_rejoin"})
+		return
+	# Slot-reclaim auth: knowing the shared room code isn't enough -- the peer
+	# must present the secret token it was handed when it first took this slot
+	# (see _handle_host/_handle_join). Blocks a stranger who overheard the code
+	# from seizing a briefly-dropped player's seat.
+	var expected: String = str(room.get(role + "_token", ""))
+	if expected == "" or token != expected:
+		_send(ws, {"type": "rejoin_failed", "reason": "bad_token"})
 		return
 	room[role] = ws
 	room[role + "_disconnected_at"] = -1
@@ -209,6 +238,12 @@ func _check_grace_periods() -> void:
 				var other: WebSocketPeer = room.get(other_role)
 				if other != null:
 					_send(other, {"type": "peer_left"})
+					# The surviving peer stays connected but its room is about to
+					# be erased -- clear its stale mapping too, or _handle_host/
+					# _handle_join would keep ignoring it (it'd still look "in a
+					# room") and it couldn't start a new game without reconnecting.
+					_room_of.erase(other)
+					_role_of.erase(other)
 				expired_codes.append(code)
 				break
 	for code in expired_codes:
@@ -216,6 +251,19 @@ func _check_grace_periods() -> void:
 
 func _send(ws: WebSocketPeer, data: Dictionary) -> void:
 	ws.send_text(JSON.stringify(data))
+
+const TOKEN_ALPHABET := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+const TOKEN_LENGTH := 22
+
+## A per-room, per-role secret handed to each peer when it hosts/joins and
+## required to reclaim that slot on rejoin. Unlike the room code (short, shared
+## aloud), this never leaves the owning client, so overhearing the code alone
+## can't seize a dropped seat.
+func _make_token() -> String:
+	var s := ""
+	for i in range(TOKEN_LENGTH):
+		s += TOKEN_ALPHABET[randi() % TOKEN_ALPHABET.length()]
+	return s
 
 func _make_unique_code() -> String:
 	var code := _random_code()
