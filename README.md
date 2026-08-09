@@ -1,6 +1,6 @@
 # ChessTan Relay
 
-Tiny standalone matchmaking/relay server for [ChessTan](https://github.com/darrenhuai/foundrychess-web)'s
+Tiny standalone matchmaking/relay server for [ChessTan](https://github.com/darrenhuai/chesstan-web)'s
 2-4 player online mode. ChessTan runs as a Discord Activity, and this is the
 server its clients connect to so they can find each other (up to 4 peers per
 room) and pass moves back and forth.
@@ -57,7 +57,5 @@ that use a fixed internal port (Fly.io).
 
 ## Related
 
-- [foundrychess-web](https://github.com/darrenhuai/foundrychess-web) — the
-  ChessTan game itself, built for Discord Activity hosting. (This repo kept
-  its original name on purpose -- it's the recruiter/portfolio-facing link
-  and stays stable even as the rest of the project moved to "ChessTan".)
+- [chesstan-web](https://github.com/darrenhuai/chesstan-web) — the ChessTan
+  game itself, built for Discord Activity hosting.
