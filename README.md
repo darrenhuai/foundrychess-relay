@@ -52,8 +52,8 @@ The Docker image downloads the official Godot Linux binary at build time
 rather than shipping one, so the repo itself stays binary-free.
 
 It reads `$PORT` at startup (falling back to `8910`), so the same image
-works unmodified on hosts that assign the port dynamically (Render) or ones
-that use a fixed internal port (Fly.io).
+works unmodified on hosts that assign the port dynamically (Render, where
+this is deployed) and on a local machine.
 
 ## Related
 

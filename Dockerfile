@@ -20,6 +20,6 @@ COPY project.godot relay_server.gd ./
 
 EXPOSE 8910
 # Render (and some other hosts) assign the listen port dynamically via $PORT
-# rather than a fixed one like Fly.io's internal_port mapping -- fall back to
-# 8910 when it's unset (Fly, local runs) so the same image works on either.
+# rather than a fixed one -- fall back to 8910 when it's unset (local runs)
+# so the same image works both in production and on a dev machine.
 CMD ["/bin/sh", "-c", "godot4 --headless --path /app -s relay_server.gd --port=${PORT:-8910}"]

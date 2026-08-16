@@ -7,6 +7,6 @@ config_version=5
 
 [application]
 
-config/name="Foundry Chess Relay Server"
+config/name="ChessTan Relay Server"
 run/main_scene=""
 config/features=PackedStringArray("4.7", "GL Compatibility")
