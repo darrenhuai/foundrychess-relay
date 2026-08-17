@@ -22,11 +22,14 @@ const MAX_PEERS := 4
 const HOST_PEER_ID := 0
 
 ## How long a room stays alive after one side drops before the OTHER side is
-## told it's truly over. Long enough to survive a real wifi blip or an app
-## getting backgrounded for a minute, short enough that a genuinely abandoned
-## room doesn't sit around forever. Overridable via --grace-ms= so
-## relay_server_test.gd can exercise real expiry without a 60s-real-time test.
-const DEFAULT_GRACE_MS := 60000
+## told it's truly over. Long enough to survive a real wifi blip, an app
+## getting backgrounded for a couple of minutes, or the slow half-open-socket
+## detection described above _accept_new_connections -- short enough that a
+## genuinely abandoned room doesn't sit around forever. Overridable via
+## --grace-ms= so relay_server_test.gd can exercise real expiry without a
+## minutes-long real-time test. NetClient.MAX_RECONNECT_ATTEMPTS is sized to
+## keep retrying for this whole window -- change one, revisit the other.
+const DEFAULT_GRACE_MS := 120000
 
 var _port := DEFAULT_PORT
 var _grace_ms := DEFAULT_GRACE_MS
@@ -66,10 +69,18 @@ func _tick() -> void:
 	_poll_active()
 	_check_grace_periods()
 
+## heartbeat_interval makes the server emit WebSocket ping frames every 30s
+## on otherwise-idle connections. Render's proxy (and plenty of home NATs)
+## silently kills connections idle for ~5 minutes, and a turn-based game
+## routinely idles longer than that while someone thinks -- without this,
+## every long think severed both players mid-game. The pings also surface
+## half-open dead sockets (client vanished without a FIN) instead of leaving
+## opponents waiting on a peer the relay still believes is connected.
 func _accept_new_connections() -> void:
 	while _tcp.is_connection_available():
 		var tcp_peer := _tcp.take_connection()
 		var ws := WebSocketPeer.new()
+		ws.heartbeat_interval = 30.0
 		ws.accept_stream(tcp_peer)
 		_pending.append(ws)
 
